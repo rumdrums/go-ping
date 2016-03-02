@@ -4,16 +4,20 @@ import(
 	"log"
 	"os"
 	"fmt"
-	"flag"
 	"net"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/icmp"
 )
 
 func main() {
-	flag.Parse()
-	// this could prolly be saved directly as address type:
-	address := flag.Args()[0]
+	var address string
+	if len(os.Args) > 1 {
+		address = os.Args[1]
+	} else {
+		fmt.Println("Pass an address")
+		os.Exit(69)
+	}
+
 	// c, err := icmp.ListenPacket("udp4", "localhost")
 	c, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
 	if err != nil {
