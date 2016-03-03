@@ -34,18 +34,48 @@ func main() {
 			Data: []byte("Hello"),
 		},
 	}
-	// 
+
 	marshalled, err := ping.Marshal(nil)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Marshall: ", err)
 	}
+	// why doesn't this fail when I pass
+	// a nonsense address, like 192.168.1.1000 ??
 	new_address := net.ParseIP(address)
 	_, err = c.WriteTo(marshalled, &net.IPAddr{IP: new_address})
 	if err != nil {
-		log.Fatal("Fucked: ",err)
+		log.Fatal("Write to socket: ", err)
 	}
-	fmt.Println("Address: ", address)
-	fmt.Println("This is what happens when you print the type directly:", ipv4.ICMPTypeParameterProblem)
-	fmt.Println("icmp.Message contents: ", ping)
-	fmt.Println("icmp.Message.Marshal(): ", marshalled )
+
+	buf := make([]byte, 1500)
+	// I don't know what n is:
+	n, peer, err := c.ReadFrom(buf)
+	if err != nil {
+        log.Fatal("Read from socket: ", err)
+    }
+
+	message, err := icmp.ParseMessage(1, buf)
+    if err != nil {
+        log.Fatal("Parse response: ", err)
+    }
+
+//	switch message.Type {
+//	case ipv4.ICMPTypeEchoReply:
+		fmt.Println("Message Type: ", message.Type)
+		fmt.Println("Message Code: ", message.Code)
+		fmt.Println("Message Checksum: ", message.Checksum)
+		fmt.Println("Message Body: ", message.Body)
+//	case ipv4.ICMPTypeDestinationUnreachable:
+//		fmt.Println("Unreachable")
+//	default:
+//	}
+	// still don't know what n is:
+	fmt.Println("num bytes?: ", n)
+	fmt.Println("read from: ", peer)
+
+	// fmt.Println("Address: ", address)
+	// fmt.Println("icmp.Message.Marshal(): ", marshalled )
+	// fmt.Println("icmp.Message contents: ", ping)
+	// fmt.Println("This is what happens when you print the type directly:", ipv4.ICMPTypeParameterProblem)
+
 }
