@@ -88,19 +88,15 @@ func main() {
 
 	parsedIP, network, err := net.ParseCIDR(address)
 	if err != nil {
-		fmt.Println(err)
+		parsedIP := net.ParseIP(address)
+		if parsedIP == nil {
+			log.Fatal("Couldn't parse address")
+		}
+		ping(c,parsedIP)
+	} else {
+		for ip := parsedIP.Mask(network.Mask); network.Contains(ip); incr(ip) {
+			fmt.Println("\n\n",ip)
+			ping(c, ip)
+		}
 	}
-	// if ParseCIDR failed, try parse as standalone IP:
-	if network == nil {
-		parsedIP = net.ParseIP(address)
-	}
-	if parsedIP == nil {
-		log.Fatal("Couldn't parse address")
-	}
-	//fmt.Println("test1: ", ip)
-	//fmt.Println("test2: ", network)
-    for ip := parsedIP.Mask(network.Mask); network.Contains(ip); incr(ip) {
-        fmt.Println("\n\n",ip)
-		ping(c, ip)
-    }
 }
