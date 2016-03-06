@@ -18,8 +18,10 @@ func incr(ip net.IP) {
     }
 }
 
-func ping(c *icmp.PacketConn, address net.IP) {
 
+// closure to cache stuff that only needs
+// to be done once:
+func pingBuilder() func() []byte {
 	ping := icmp.Message{
 		Type: ipv4.ICMPTypeEcho,
 		Code: 0,
@@ -29,49 +31,63 @@ func ping(c *icmp.PacketConn, address net.IP) {
 			Data: []byte("Hello"),
 		},
 	}
-
 	marshalled, err := ping.Marshal(nil)
 	if err != nil {
 		log.Fatal("Marshall: ", err)
 	}
-	//fmt.Println("marshalled: ",marshalled)
-	// why doesn't this fail when I pass
-	// a nonsense address, like 192.168.1.1000 ??
-	_, err = c.WriteTo(marshalled, &net.IPAddr{IP: address})
+	return func() []byte {
+		return marshalled
+	}
+}
+
+func ping(c *icmp.PacketConn, address net.IP, queue chan int) {
+
+	// this is pointless if done here:
+	getPacket := pingBuilder()
+
+	ping := getPacket()
+	_, err := c.WriteTo(ping, &net.IPAddr{IP: address})
 	if err != nil {
 		log.Fatal("Write to socket: ", err)
 	}
+	queue <- 1
+}
 
-	buf := make([]byte, 1500)
-	// I don't know what n is:
-	//n, peer, err := c.ReadFrom(buf)
-	_, peer, err := c.ReadFrom(buf)
-	if err != nil {
-        log.Fatal("Read from socket: ", err)
-    }
+func getResponses(c *icmp.PacketConn, queue chan int, quit chan int) {
 
-	message, err := icmp.ParseMessage(1, buf)
-    if err != nil {
-        log.Fatal("Parse response: ", err)
-    }
+	for len(queue) > 0 {
+		buf := make([]byte, 1500)
+		// I don't know what n is:
+		// n, peer, err := c.ReadFrom(buf)
+		_, peer, err := c.ReadFrom(buf)
 
-	fmt.Println("Message Type: ", message.Type)
-	fmt.Println("Message Code: ", message.Code)
-	//fmt.Println("Message Checksum: ", message.Checksum)
-	//fmt.Println("Message Body: ", message.Body)
+		<- queue
 
-	// still don't know what n is:
-	//fmt.Println("num bytes?: ", n)
-	fmt.Println("read from: ", peer)
+		if err != nil {
+			log.Fatal("Read from socket: ", err)
+		}
 
-	// fmt.Println("Address: ", address)
-	// fmt.Println("icmp.Message.Marshal(): ", marshalled )
-	// fmt.Println("icmp.Message contents: ", ping)
-	// fmt.Println("This is what happens when you print the type directly:", ipv4.ICMPTypeParameterProblem)
+		message, err := icmp.ParseMessage(1, buf)
+		if err != nil {
+			log.Fatal("Parse response: ", err)
+		}
+
+		fmt.Println("Message Type: ", message.Type)
+		fmt.Println("Message Code: ", message.Code)
+		//fmt.Println("Message Checksum: ", message.Checksum)
+		//fmt.Println("Message Body: ", message.Body)
+
+		// still don't know what n is:
+		//fmt.Println("num bytes?: ", n)
+		fmt.Println("read from: ", peer)
+	}
+	quit <- 1
 }
 
 func main() {
 	var address string
+	queue := make(chan int)
+	quit := make(chan int)
 	if len(os.Args) > 1 {
 		address = os.Args[1]
 	} else {
@@ -87,16 +103,20 @@ func main() {
 	defer c.Close()
 
 	parsedIP, network, err := net.ParseCIDR(address)
+	// assume any error is caused by passing IP
+	// instead of CIDR:
 	if err != nil {
 		parsedIP := net.ParseIP(address)
 		if parsedIP == nil {
 			log.Fatal("Couldn't parse address")
 		}
-		ping(c,parsedIP)
+		go ping(c, parsedIP, queue)
 	} else {
 		for ip := parsedIP.Mask(network.Mask); network.Contains(ip); incr(ip) {
 			fmt.Println("\n\n",ip)
-			ping(c, ip)
+			go ping(c, ip, queue)
 		}
 	}
+	go getResponses(c, queue, quit)
+	<-quit
 }
