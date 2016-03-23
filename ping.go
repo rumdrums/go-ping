@@ -18,7 +18,6 @@ func incr(ip net.IP) {
     }
 }
 
-
 // closure to cache stuff that only needs
 // to be done once:
 func pingBuilder() func() []byte {
@@ -55,7 +54,10 @@ func ping(c *icmp.PacketConn, address net.IP, queue chan int) {
 
 func getResponses(c *icmp.PacketConn, queue chan int, quit chan int) {
 
-	for len(queue) > 0 {
+	fmt.Println("queue length: ", len(queue))
+	//for len(queue) > 0 {
+	for msg := range queue {
+		fmt.Println("message: ", msg)
 		buf := make([]byte, 1500)
 		// I don't know what n is:
 		// n, peer, err := c.ReadFrom(buf)
@@ -102,21 +104,27 @@ func main() {
 	}
 	defer c.Close()
 
-	parsedIP, network, err := net.ParseCIDR(address)
-	// assume any error is caused by passing IP
-	// instead of CIDR:
-	if err != nil {
-		parsedIP := net.ParseIP(address)
-		if parsedIP == nil {
-			log.Fatal("Couldn't parse address")
+	go func() {
+		parsedIP, network, err := net.ParseCIDR(address)
+		// not great -- currently assumes any error 
+		// is caused by passing IP instead of CIDR...
+		if err != nil {
+			parsedIP := net.ParseIP(address)
+			if parsedIP == nil {
+				log.Fatal("Couldn't parse address")
+			}
+			fmt.Printf("Pinging %v\n",parsedIP)
+			ping(c, parsedIP, queue)
+		// ... and otherwise assumes it's CIDR and 
+		// tries to iterate through subnet:
+		} else {
+			for ip := parsedIP.Mask(network.Mask); network.Contains(ip); incr(ip) {
+				fmt.Printf("Pinging %v\n",ip)
+				ping(c, ip, queue)
+			}
 		}
-		go ping(c, parsedIP, queue)
-	} else {
-		for ip := parsedIP.Mask(network.Mask); network.Contains(ip); incr(ip) {
-			fmt.Println("\n\n",ip)
-			go ping(c, ip, queue)
-		}
-	}
+		close(queue)
+	}()
 	go getResponses(c, queue, quit)
 	<-quit
 }
