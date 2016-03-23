@@ -57,13 +57,13 @@ func getResponses(c *icmp.PacketConn, queue chan int, quit chan int) {
 	fmt.Println("queue length: ", len(queue))
 	//for len(queue) > 0 {
 	for msg := range queue {
+
 		fmt.Println("message: ", msg)
+
 		buf := make([]byte, 1500)
 		// I don't know what n is:
 		// n, peer, err := c.ReadFrom(buf)
 		_, peer, err := c.ReadFrom(buf)
-
-		<- queue
 
 		if err != nil {
 			log.Fatal("Read from socket: ", err)
@@ -104,6 +104,7 @@ func main() {
 	}
 	defer c.Close()
 
+	// closure -- execute whole block in background:
 	go func() {
 		parsedIP, network, err := net.ParseCIDR(address)
 		// not great -- currently assumes any error 
@@ -125,6 +126,7 @@ func main() {
 		}
 		close(queue)
 	}()
+
 	go getResponses(c, queue, quit)
 	<-quit
 }
