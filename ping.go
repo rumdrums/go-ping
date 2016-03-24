@@ -49,16 +49,17 @@ func ping(c *icmp.PacketConn, address net.IP, queue chan int) {
 	if err != nil {
 		log.Fatal("Write to socket: ", err)
 	}
-	queue <- 1
+	//queue <- 1
 }
 
 func getResponses(c *icmp.PacketConn, queue chan int, quit chan int) {
 
-	fmt.Println("queue length: ", len(queue))
-	//for len(queue) > 0 {
-	for msg := range queue {
 
-		fmt.Println("message: ", msg)
+	//for msg := range queue {
+	for len(queue) > 0 {
+
+		fmt.Println("queue length: ", len(queue))
+		<-queue
 
 		buf := make([]byte, 1500)
 		// I don't know what n is:
@@ -88,7 +89,7 @@ func getResponses(c *icmp.PacketConn, queue chan int, quit chan int) {
 
 func main() {
 	var address string
-	queue := make(chan int)
+	queue := make(chan int,10000)
 	quit := make(chan int)
 	if len(os.Args) > 1 {
 		address = os.Args[1]
@@ -104,28 +105,28 @@ func main() {
 	}
 	defer c.Close()
 
-	// closure -- execute whole block in background:
-	go func() {
-		parsedIP, network, err := net.ParseCIDR(address)
-		// not great -- currently assumes any error 
-		// is caused by passing IP instead of CIDR...
-		if err != nil {
-			parsedIP := net.ParseIP(address)
-			if parsedIP == nil {
-				log.Fatal("Couldn't parse address")
-			}
-			fmt.Printf("Pinging %v\n",parsedIP)
-			ping(c, parsedIP, queue)
-		// ... and otherwise assumes it's CIDR and 
-		// tries to iterate through subnet:
-		} else {
-			for ip := parsedIP.Mask(network.Mask); network.Contains(ip); incr(ip) {
-				fmt.Printf("Pinging %v\n",ip)
-				ping(c, ip, queue)
-			}
+	parsedIP, network, err := net.ParseCIDR(address)
+	// not great -- currently assumes any error 
+	// is caused by passing IP instead of CIDR...
+	if err != nil {
+		parsedIP := net.ParseIP(address)
+		if parsedIP == nil {
+			log.Fatal("Couldn't parse address")
 		}
-		close(queue)
-	}()
+		queue<-1
+		fmt.Println("writing to queue...")
+		fmt.Printf("Pinging %v\n",parsedIP)
+		go ping(c, parsedIP, queue)
+	// ... and otherwise assumes it's CIDR and 
+	// tries to iterate through subnet:
+	} else {
+		for ip := parsedIP.Mask(network.Mask); network.Contains(ip); incr(ip) {
+			fmt.Println("writing to queue...")
+			queue<-1
+			fmt.Printf("Pinging %v\n",ip)
+			go ping(c, ip, queue)
+		}
+	}
 
 	go getResponses(c, queue, quit)
 	<-quit
