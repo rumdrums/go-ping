@@ -37,21 +37,24 @@ func getPacket() []byte {
 	return marshalled
 }
 
-func ping(c *icmp.PacketConn, address net.IP, queue *map[string]Ping) {
+func ping(c *icmp.PacketConn, address net.IP, queue map[string]Ping) {
 
-	fmt.Println(queue)
-	ping := getPacket()
-	_, err := c.WriteTo(ping, &net.IPAddr{IP: address})
+	packet := getPacket()
+	_, err := c.WriteTo(packet, &net.IPAddr{IP: address})
 	if err != nil {
 		log.Fatal("Write to socket: ", err)
 	}
+	ping := Ping{}
+	ping.send = time.Now()
+	queue[address.String()] = ping
 }
 
-func getResponses(c *icmp.PacketConn, queue *map[string]Ping, quit chan int) {
+func getResponses(c *icmp.PacketConn, queue map[string]Ping, quit chan int) {
 
 	fmt.Println(queue)
 	for {
 		buf := make([]byte, 1500)
+
 		// this will block:
 		_, peer, err := c.ReadFrom(buf)
 
@@ -59,13 +62,23 @@ func getResponses(c *icmp.PacketConn, queue *map[string]Ping, quit chan int) {
 			log.Fatal("Read from socket: ", err)
 		}
 
-		message, err := icmp.ParseMessage(1, buf)
-		if err != nil {
-			log.Fatal("Parse response: ", err)
-		}
+		// if the read msg is actually from someone we
+		// sent a ping to:
+		if ping, ok := queue[peer.String()]; ok {
 
-		fmt.Println("Message Type: ", message.Type)
-		fmt.Println("read from: ", peer)
+			message, err := icmp.ParseMessage(1, buf)
+			if err != nil {
+				log.Fatal("Parse response: ", err)
+			}
+
+			// if the read msg is actually a response to
+			// the ping we sent (ID matches):
+			// FIXME: can't read message body like this:
+			if message.Body.ID == os.Getpid() & 0xffff {
+				fmt.Println("Message Type: ", message.Type)
+				fmt.Println("read from: ", peer)
+			}
+		}
 	}
 	quit <- 1
 }
@@ -104,16 +117,16 @@ func main() {
 				log.Fatal("Couldn't parse address")
 			}
 			fmt.Printf("Pinging %v\n",parsedIP)
-			ping(c, parsedIP, &queue)
+			ping(c, parsedIP, queue)
 		// ... and otherwise assumes it's CIDR and 
 		// tries to iterate through subnet:
 		} else {
 			for ip := parsedIP.Mask(network.Mask); network.Contains(ip); incr(ip) {
 				fmt.Printf("Pinging %v\n",ip)
-				ping(c, ip, &queue)
+				ping(c, ip, queue)
 			}
 		}
 	}()
-	go getResponses(c, &queue, quit)
+	go getResponses(c, queue, quit)
 	<-quit
 }
