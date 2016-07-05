@@ -1,6 +1,7 @@
 package main
 
 import(
+	"time"
 	"log"
 	"os"
 	"fmt"
@@ -18,9 +19,7 @@ func incr(ip net.IP) {
     }
 }
 
-// closure to cache stuff that only needs
-// to be done once:
-func pingBuilder() func() []byte {
+func getPacket() []byte {
 	ping := icmp.Message{
 		Type: ipv4.ICMPTypeEcho,
 		Code: 0,
@@ -34,35 +33,26 @@ func pingBuilder() func() []byte {
 	if err != nil {
 		log.Fatal("Marshall: ", err)
 	}
-	return func() []byte {
-		return marshalled
-	}
+
+	return marshalled
 }
 
-func ping(c *icmp.PacketConn, address net.IP, queue chan int) {
+func ping(c *icmp.PacketConn, address net.IP, queue *map[string]Ping) {
 
-	// this is pointless if done here:
-	getPacket := pingBuilder()
-
+	fmt.Println(queue)
 	ping := getPacket()
 	_, err := c.WriteTo(ping, &net.IPAddr{IP: address})
 	if err != nil {
 		log.Fatal("Write to socket: ", err)
 	}
-	queue <- 1
 }
 
-func getResponses(c *icmp.PacketConn, queue chan int, quit chan int) {
+func getResponses(c *icmp.PacketConn, queue *map[string]Ping, quit chan int) {
 
-	fmt.Println("queue length: ", len(queue))
-	//for len(queue) > 0 {
-	for msg := range queue {
-
-		fmt.Println("message: ", msg)
-
+	fmt.Println(queue)
+	for {
 		buf := make([]byte, 1500)
-		// I don't know what n is:
-		// n, peer, err := c.ReadFrom(buf)
+		// this will block:
 		_, peer, err := c.ReadFrom(buf)
 
 		if err != nil {
@@ -75,20 +65,19 @@ func getResponses(c *icmp.PacketConn, queue chan int, quit chan int) {
 		}
 
 		fmt.Println("Message Type: ", message.Type)
-		fmt.Println("Message Code: ", message.Code)
-		//fmt.Println("Message Checksum: ", message.Checksum)
-		//fmt.Println("Message Body: ", message.Body)
-
-		// still don't know what n is:
-		//fmt.Println("num bytes?: ", n)
 		fmt.Println("read from: ", peer)
 	}
 	quit <- 1
 }
 
+type Ping struct {
+	send time.Time
+	receive time.Time
+}
+
 func main() {
 	var address string
-	queue := make(chan int)
+	queue := make(map[string]Ping)
 	quit := make(chan int)
 	if len(os.Args) > 1 {
 		address = os.Args[1]
@@ -115,18 +104,16 @@ func main() {
 				log.Fatal("Couldn't parse address")
 			}
 			fmt.Printf("Pinging %v\n",parsedIP)
-			ping(c, parsedIP, queue)
+			ping(c, parsedIP, &queue)
 		// ... and otherwise assumes it's CIDR and 
 		// tries to iterate through subnet:
 		} else {
 			for ip := parsedIP.Mask(network.Mask); network.Contains(ip); incr(ip) {
 				fmt.Printf("Pinging %v\n",ip)
-				ping(c, ip, queue)
+				ping(c, ip, &queue)
 			}
 		}
-		close(queue)
 	}()
-
-	go getResponses(c, queue, quit)
+	go getResponses(c, &queue, quit)
 	<-quit
 }
