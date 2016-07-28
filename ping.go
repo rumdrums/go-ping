@@ -29,6 +29,7 @@ func getPacket() []byte {
 			Data: []byte("Hello"),
 		},
 	}
+    fmt.Println("this is my ID: ", os.Getpid())
 	marshalled, err := ping.Marshal(nil)
 	if err != nil {
 		log.Fatal("Marshall: ", err)
@@ -66,19 +67,51 @@ func getResponses(c *icmp.PacketConn, queue map[string]Ping, quit chan int) {
 		// sent a ping to:
 		if ping, ok := queue[peer.String()]; ok {
 
+            fmt.Println("ping sent time, ", ping.send)
+
 			message, err := icmp.ParseMessage(1, buf)
 			if err != nil {
 				log.Fatal("Parse response: ", err)
 			}
 
-			// if the read msg is actually a response to
-			// the ping we sent (ID matches):
-			// FIXME: can't read message body like this:
-			if message.Body.ID == os.Getpid() & 0xffff {
+            switch message.Type {
+              case ipv4.ICMPTypeEchoReply:
+                fmt.Println("got a echo reply")
+              default:
+                fmt.Print("got unexpected message type: ", message.Type)
+                return
+            }
+
+            // Alternative to type switch:
+            body, ok := message.Body.(*icmp.Echo)
+            if ok {
+              fmt.Println("body.ID ", body.ID)
+              fmt.Println("body.Seq ", body.Seq)
+              fmt.Println("body.Data ", string(body.Data))
+            } else {
+                return
+            }
+
+            /* 
+            switch body := message.Body.(type) {
+              case *icmp.Echo:
+                fmt.Println("body.ID ", body.ID)
+                fmt.Println("body.Seq ", body.Seq)
+                fmt.Println("body.Data ", string(body.Data))
+              default:
+                fmt.Println("not a *icmp.Echo")
+            }
+            */
+
+            // if the read msg is actually a response to
+			// the ping we sent (ID matches)
+			if body.ID == (os.Getpid() & 0xffff) {
 				fmt.Println("Message Type: ", message.Type)
 				fmt.Println("read from: ", peer)
-			}
-		}
+			} else {
+              fmt.Println("Ping not recognized")
+            }
+      }
 	}
 	quit <- 1
 }
